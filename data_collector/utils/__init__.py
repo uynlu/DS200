@@ -1,6 +1,5 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
-import time
 
 
 WEBDRIVERPATH = "U:\\InstalledApp\\Work\\AppData\\ChromeDriver-Win64\\chromedriver.exe"
@@ -23,17 +22,3 @@ def set_up_driver():
     driver = webdriver.Chrome(service=service, options=options)
 
     return driver
-
-
-def scroll_full_page(driver: webdriver.Chrome):
-    last_height = driver.execute_script('return document.documentElement.scrollHeight')
-
-    while True:
-        driver.execute_script('window.scrollTo(0, document.documentElement.scrollHeight);')
-        time.sleep(3)
-
-        new_height = driver.execute_script('return document.documentElement.scrollHeight')
-        if new_height == last_height:
-            break
-        last_height = new_height
-       

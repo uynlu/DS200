@@ -4,13 +4,14 @@ from bs4 import BeautifulSoup
 import json
 import time
 import os
+import re
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.support.ui import WebDriverWait
 
 from data_collector.kol_info.base_scraper import BaseScraper
-from data_collector.utils import scroll_full_page, set_up_driver
+from data_collector.utils import set_up_driver
 
 
 API = "AIzaSyCe7rO3TWJvfA8if54_pAqxDci1ZdxwBX0"
@@ -26,7 +27,7 @@ class YoutubeScraper(BaseScraper):
     def get_channel_info(self):
         print("*** Get Youtube channel information ***")
         if self.update_flag:
-            with open(f"{self.saved_dir}\\youtube_channels_info.json", "r", encoding="utf-8") as file:
+            with open(os.path.join(self.saved_dir, "youtube_channels_info.json"), "r", encoding="utf-8") as file:
                 self.channels_info = json.load(file)
 
             if len(self.channels_info) == len(self.youtube_kols_general_info):
@@ -34,7 +35,7 @@ class YoutubeScraper(BaseScraper):
                 return
 
         self.kol_index_start = len(self.channels_info)
-        self.get_channel_id()
+        self._get_channel_id()
         for i, channel_id in tqdm(self.channels_id):
             url = f"https://www.googleapis.com/youtube/v3/channels?part=statistics&key={API}&id={channel_id}"
             channel_info = json.loads(requests.get(url).text)
@@ -45,31 +46,19 @@ class YoutubeScraper(BaseScraper):
                 "youtube_subscriber_count": int(channel_info["items"][0]["statistics"]["subscriberCount"]),
                 "youtube_video_count": int(channel_info["items"][0]["statistics"]["videoCount"])
             })
-            with open(f"{self.saved_dir}\\youtube_channels_info.json", "w", encoding="utf-8") as file:
+            with open(os.path.join(self.saved_dir, "youtube_channels_info.json"), "w", encoding="utf-8") as file:
                 json.dump(self.channels_info, file, ensure_ascii=False, indent=4)
-
-    def get_channel_id(self):
-        print("*** Get Youtube channel id ***")
-        self.channels_id = []
-        for i in tqdm(range(self.kol_index_start, len(self.youtube_kols_general_info))):
-            url = self.youtube_kols_general_info["Youtube"][i]
-            channel_response = requests.get(url)
-            channel_soup = BeautifulSoup(channel_response.text, "html.parser")
-            channel_meta_identifier = channel_soup.find("meta", itemprop="identifier")
-            if channel_meta_identifier:
-                channel_id = channel_meta_identifier.get("content")
-                self.channels_id.append((i, channel_id))
-            else:
-                raise(f'Không tìm thấy channel ID của {self.youtube_kols_general_info["KOL"][i]}')
             
     def get_videos_info(self):
-        self._set_up_driver()
+        print("*** Set up selenium driver ***")
+        self.driver = set_up_driver()
+        self.wait = WebDriverWait(self.driver, 10)
 
         if self.update_flag:
-            with open(f"{self.saved_dir}\\youtube_videos_detail.json", "r", encoding="utf-8") as file:
+            with open(os.path.join(self.saved_dir, "youtube_videos_detail.json"), "r", encoding="utf-8") as file:
                 self.videos_detail = json.load(file)
 
-            with open(f"{self.saved_dir}\\youtube_videos_comments.json", "r", encoding="utf-8") as file:
+            with open(os.path.join(self.saved_dir, "youtube_videos_comments.json"), "r", encoding="utf-8") as file:
                 self.videos_comments = json.load(file)
         
         j = len(self.videos_detail) + 1
@@ -88,7 +77,7 @@ class YoutubeScraper(BaseScraper):
             videos_button.click()
             time.sleep(1.5)
             
-            scroll_full_page(self.driver)
+            self._scroll_full_page()
 
             videos_element = self.driver.find_elements(By.TAG_NAME, 'ytd-rich-item-renderer')
 
@@ -123,7 +112,9 @@ class YoutubeScraper(BaseScraper):
                         no_thanks_button.click()
                         time.sleep(0.5)
 
-                    if self.driver.find_elements(By.XPATH, './/*[@id="message"]'):
+                    if self.driver.find_elements(
+                        By.XPATH, '//yt-formatted-string[@id="message"]//span[contains(text(), "Comments are turned off. ")]'
+                    ):
                         continue
 
                     title, view_count, published_day, like_count, content, comment_count = self._get_video_detail()               
@@ -138,7 +129,7 @@ class YoutubeScraper(BaseScraper):
                         "youtube_video_comment_count": comment_count,
                         "kol_id": str(self.youtube_kols_general_info["STT"][i])  # Foreign key reference to self.channel_info
                     })
-                    with open(f"{self.saved_dir}\\youtube_videos_detail.json", "w", encoding="utf-8") as file:
+                    with open(os.path.join(self.saved_dir, "youtube_videos_detail.json"), "w", encoding="utf-8") as file:
                         json.dump(self.videos_detail, file, ensure_ascii=False, indent=4)
 
                     comments = self._get_video_comments()
@@ -150,7 +141,7 @@ class YoutubeScraper(BaseScraper):
                         })
                         k += 1
                         
-                    with open(f"{self.saved_dir}\\youtube_videos_comments.json", "w", encoding="utf-8") as file:
+                    with open(os.path.join(self.saved_dir, "youtube_videos_comments.json"), "w", encoding="utf-8") as file:
                         json.dump(self.videos_comments, file, ensure_ascii=False, indent=4)
 
                     j += 1
@@ -161,19 +152,31 @@ class YoutubeScraper(BaseScraper):
                         "error_video_url": video_link,
                         "error": str(e)
                     })
-                    with open(f"{self.saved_dir}\\youtube_videos_error.json", "w", encoding="utf-8") as file:
+                    with open(os.path.join(self.saved_dir, "youtube_videos_error.json"), "w", encoding="utf-8") as file:
                         json.dump(youtube_videos_error, file, ensure_ascii=False, indent=4)
 
         self.driver.quit()
+
+    def get_videos_hastags(self):
+        with open(os.path.join(self.saved_dir, "youtube_videos_detail.json"), "r", encoding="utf-8") as file:
+            self.videos_detail = json.load(file)
+        
+        for video_datail in self.videos_detail:
+            content = video_datail.get("youtube_video_content", "")
+            hashtags = re.findall(r"#\w+|#\S*[\w]", content)
+            video_datail["youtube_video_hashtags"] = hashtags
+
+        with open(os.path.join(self.saved_dir, "youtube_videos_detail_with_hashtags.json"), "w", encoding="utf-8") as file:
+            json.dump(self.videos_detail, file, ensure_ascii=False, indent=4)
 
     def get_error_video_info(self, link: str = None, id: str = None):
         self.driver = set_up_driver()
         self.wait = WebDriverWait(self.driver, 10)
 
-        with open(f"{self.saved_dir}\\youtube_videos_detail.json", "r", encoding="utf-8") as file:
+        with open(os.path.join(self.saved_dir, "youtube_videos_detail.json"), "r", encoding="utf-8") as file:
             self.videos_detail = json.load(file)
 
-        with open(f"{self.saved_dir}\\youtube_videos_comments.json", "r", encoding="utf-8") as file:
+        with open(os.path.join(self.saved_dir, "youtube_videos_comments.json"), "r", encoding="utf-8") as file:
             self.videos_comments = json.load(file)
         
         j = len(self.videos_detail) + 1
@@ -191,7 +194,10 @@ class YoutubeScraper(BaseScraper):
             no_thanks_button.click()
             time.sleep(0.5)
 
-        if self.driver.find_elements(By.XPATH, './/*[@id="message"]'):
+        if self.driver.find_elements(
+            By.XPATH, '//yt-formatted-string[@id="message"]//span[contains(text(), "Comments are turned off. ")]'
+        ):
+            self.driver.quit()
             return
 
         title, view_count, published_day, like_count, content, comment_count = self._get_video_detail()               
@@ -206,7 +212,7 @@ class YoutubeScraper(BaseScraper):
             "youtube_video_comment_count": comment_count,
             "kol_id": id
         })
-        with open(f"{self.saved_dir}\\youtube_videos_detail.json", "w", encoding="utf-8") as file:
+        with open(os.path.join(self.saved_dir, "youtube_videos_detail.json"), "w", encoding="utf-8") as file:
             json.dump(self.videos_detail, file, ensure_ascii=False, indent=4)
 
         comments = self._get_video_comments()
@@ -217,11 +223,25 @@ class YoutubeScraper(BaseScraper):
                 "youtube_video_id": str(j)
             })
             k += 1
-        with open(f"{self.saved_dir}\\youtube_videos_comments.json", "w", encoding="utf-8") as file:
+        with open(os.path.join(self.saved_dir, "youtube_videos_comments.json"), "w", encoding="utf-8") as file:
             json.dump(self.videos_comments, file, ensure_ascii=False, indent=4)      
         
         self.driver.quit()
 
+    def _get_channel_id(self):
+        print("*** Get Youtube channel id ***")
+        self.channels_id = []
+        for i in tqdm(range(self.kol_index_start, len(self.youtube_kols_general_info))):
+            url = self.youtube_kols_general_info["Youtube"][i]
+            channel_response = requests.get(url)
+            channel_soup = BeautifulSoup(channel_response.text, "html.parser")
+            channel_meta_identifier = channel_soup.find("meta", itemprop="identifier")
+            if channel_meta_identifier:
+                channel_id = channel_meta_identifier.get("content")
+                self.channels_id.append((i, channel_id))
+            else:
+                raise(f'Không tìm thấy channel ID của {self.youtube_kols_general_info["KOL"][i]}')
+            
     def _get_video_detail(self):
         title_element = self.driver.find_element(By.CSS_SELECTOR, 'h1.ytd-watch-metadata yt-formatted-string')
         title = title_element.get_attribute("title")
@@ -260,8 +280,8 @@ class YoutubeScraper(BaseScraper):
             By.CSS_SELECTOR,
             'ytd-text-inline-expander.style-scope.ytd-watch-metadata'
         )
-        content = content_element.get_attribute("innerText")
-        
+        content = re.sub(r"\nTranscript.*?Show less\n", "", content_element.get_attribute("innerText"), flags=re.DOTALL)
+
         while True:
             self.driver.execute_script('window.scrollTo(0, document.documentElement.scrollHeight);')
             time.sleep(1)
@@ -282,9 +302,9 @@ class YoutubeScraper(BaseScraper):
             comment_count = int(comment_count_text[:-9].replace(",", ""))
 
         return title, view_count, published_day, like_count, content, comment_count
-        
+    
     def _get_video_comments(self):
-        scroll_full_page(self.driver)
+        self._scroll_full_page()
         
         comments_element = self.driver.find_elements(
             By.CSS_SELECTOR, 'ytd-comment-thread-renderer.style-scope.ytd-item-section-renderer'
@@ -336,6 +356,18 @@ class YoutubeScraper(BaseScraper):
                     comments.append(reply_text)
         
         return comments
+
+    def _scroll_full_page(self):
+        last_height = self.driver.execute_script('return document.documentElement.scrollHeight')
+
+        while True:
+            self.driver.execute_script('window.scrollTo(0, document.documentElement.scrollHeight);')
+            time.sleep(3)
+
+            new_height = self.driver.execute_script('return document.documentElement.scrollHeight')
+            if new_height == last_height:
+                break
+            last_height = new_height
 
     def _get_and_format_comment(self, comment_element: WebElement):
         comment_html_content = comment_element.find_element(By.ID, 'content').get_attribute('outerHTML')

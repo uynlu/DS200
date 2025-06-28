@@ -3,19 +3,17 @@ from tqdm import tqdm
 import json
 import os
 import numpy as np
-from selenium.webdriver.support.ui import WebDriverWait
-
-from data_collector.utils import set_up_driver
 
 
 class BaseScraper:
     def __init__(
         self,
         file_path: str,
-        saved_dir: str
+        saved_dir: str,
+        flag: bool = False,
     ):
         self.saved_dir = saved_dir
-
+        self.flag = flag
         self.update_flag = False
         self.kols_general_info = pd.read_excel(file_path, skiprows=1, sheet_name="KOLs")
 
@@ -29,20 +27,24 @@ class BaseScraper:
         self.get_kol_info()
         self.get_channel_info()
         self.get_videos_info()
+        # self.get_videos_hastags()
         
     def get_kol_info(self): 
         print("*** Get KOLs information ***")
-        if os.path.exists(os.path.join(self.saved_dir, "kols_info.json")):
-            with open(os.path.join(self.saved_dir, "kols_info.json"), "r", encoding="utf-8") as file:
-                self.kols_info = json.load(file)
-            
-            if len(self.kols_info) == len(self.kols_general_info):
-                print("*** Re-crawl, not update ***")
-                return
-            elif len(self.kols_info) < len(self.kols_general_info):
-                print("*** Update KOLs ***")
-                self.update_flag = True
-            
+        if self.flag == False:
+            if os.path.exists(os.path.join(self.saved_dir, "kols_info.json")):
+                with open(os.path.join(self.saved_dir, "kols_info.json"), "r", encoding="utf-8") as file:
+                    self.kols_info = json.load(file)
+                
+                if len(self.kols_info) == len(self.kols_general_info):
+                    print("*** Not crawl update ***")
+                    return
+                elif len(self.kols_info) < len(self.kols_general_info):
+                    print("*** Update KOLs ***")
+                    self.update_flag = True
+        else:
+            print("*** Re-crawl ***")
+
         for i in tqdm(range(len(self.kols_info), len(self.kols_general_info))):
             self.kols_info.append({
                 "id": str(self.kols_general_info["STT"][i]),
@@ -52,7 +54,7 @@ class BaseScraper:
                 "field": self.kols_general_info["Lĩnh vực"][i]
             })
 
-        with open(f"{self.saved_dir}\\kols_info.json", "w", encoding="utf-8") as file:
+        with open(os.path.join(self.saved_dir, "kols_info.json"), "w", encoding="utf-8") as file:
             json.dump(self.kols_info, file, ensure_ascii=False, indent=4)
 
     def get_channel_info(self):
@@ -61,7 +63,5 @@ class BaseScraper:
     def get_videos_info(self):
         raise NotImplementedError
     
-    def _set_up_driver(self):
-        print("*** Set up selenium driver ***")
-        self.driver = set_up_driver()
-        self.wait = WebDriverWait(self.driver, 10)
+    def get_videos_hastags(self):
+        raise NotImplementedError

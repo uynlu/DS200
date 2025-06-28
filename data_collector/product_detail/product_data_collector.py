@@ -8,7 +8,7 @@ def collect_product_data(file_path: str, saved_dir: str):
     products_general_info = pd.read_excel(file_path, skiprows=1, sheet_name="Sản phẩm")
 
     if os.path.exists(os.path.join(saved_dir, "products_info.json")):
-        with open(f"{saved_dir}\\products_info.json", "r", encoding="utf-8") as file:
+        with open(os.path.join(saved_dir, "products_info.json"), "r", encoding="utf-8") as file:
             products_info = json.load(file)
         
         if len(products_info) == len(products_general_info):
@@ -30,5 +30,5 @@ def collect_product_data(file_path: str, saved_dir: str):
             "price": int(products_general_info["Giá cả"][i])
         })
 
-    with open(f"{saved_dir}\\products_info.json", "w", encoding="utf-8") as file:
+    with open(os.path.join(saved_dir, "products_info.json"), "w", encoding="utf-8") as file:
         json.dump(products_info, file, indent=4, ensure_ascii=False)
